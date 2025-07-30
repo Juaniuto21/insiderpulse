@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import NewsGrid from '../components/NewsGrid';
 import MarketSidebar from '../components/MarketSidebar';
 import { Page, FinancialNewsArticle } from '../types';
-import { getFinancialNews } from '../services/geminiService';
+import { getFinancialNews } from '../services/apiService';
 import { Newspaper } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 

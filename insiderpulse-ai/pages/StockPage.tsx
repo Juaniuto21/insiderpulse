@@ -11,7 +11,7 @@ import StockOptions from '../components/StockOptions';
 import StockComponents from '../components/StockComponents';
 import { Page, StockSubPage, TimeRange, StockData } from '../types';
 import { useAppContext } from '../context/AppContext';
-import { getStockData } from '../services/geminiService';
+import { getStockData } from '../services/apiService';
 import { TrendingUp, AlertCircle } from 'lucide-react';
 
 interface StockPageProps {

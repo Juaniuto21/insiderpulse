@@ -4,7 +4,7 @@ import Sparkline from './Sparkline';
 import { Page, MarketIndex } from '../types';
 import GlobalSearch from './GlobalSearch';
 import useMarketStatus from '../hooks/useMarketStatus';
-import { getMarketIndices } from '../services/geminiService';
+import { getMarketIndices } from '../services/apiService';
 import { useAppContext } from '../context/AppContext';
 
 interface MarketSidebarProps {

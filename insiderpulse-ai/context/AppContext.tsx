@@ -1,7 +1,7 @@
 
 import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback } from 'react';
 import { WatchlistItem, CompanyProfile, SearchHistoryItem, LiveAlert, InitialDashboardData } from '../types';
-import { getInitialDashboardData } from '../services/geminiService';
+import { getInitialDashboardData } from '../services/apiService';
 
 interface AppContextType {
     watchlist: WatchlistItem[];

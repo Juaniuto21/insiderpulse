@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { CompanyProfile, ComprehensiveAnalysisResult, AnalysisModuleType, SentimentAnalysisResult, SearchHistoryItem } from '../types';
 import { sp500companies } from '../constants';
-import { getAiAnalysis, getNewsAndSentimentAnalysis } from '../services/geminiService';
+import { getAiAnalysis, getNewsAndSentimentAnalysis } from '../services/apiService';
 import { useAppContext } from '../context/AppContext';
 
 import AppHeader from '../components/AppHeader';
