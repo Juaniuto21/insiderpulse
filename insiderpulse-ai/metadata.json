@@ -1,0 +1,6 @@
+{
+  "name": "InsiderPulse AI",
+  "description": "An AI-powered dashboard to monitor and analyze insider trading patterns, helping investors detect suspicious activity and protect their portfolios.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
