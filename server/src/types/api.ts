@@ -2,6 +2,7 @@ export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
   error?: string;
+  code?: string;
   message?: string;
   timestamp: string;
   requestId?: string;

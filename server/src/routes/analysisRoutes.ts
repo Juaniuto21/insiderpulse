@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { aiRateLimiter, expensiveOperationLimiter } from '@/middleware/security.js';
 import { 
   getAiAnalysis,
   getAiAnalysisValidation,
@@ -18,7 +19,7 @@ const router = Router();
  * @body ticker, name, analysisType
  * @access Public
  */
-router.post('/ai', getAiAnalysisValidation, getAiAnalysis);
+router.post('/ai', aiRateLimiter, getAiAnalysisValidation, getAiAnalysis);
 
 /**
  * @route POST /api/v1/analysis/sentiment
@@ -26,7 +27,7 @@ router.post('/ai', getAiAnalysisValidation, getAiAnalysis);
  * @body ticker, name
  * @access Public
  */
-router.post('/sentiment', getSentimentAnalysisValidation, getSentimentAnalysis);
+router.post('/sentiment', aiRateLimiter, getSentimentAnalysisValidation, getSentimentAnalysis);
 
 /**
  * @route POST /api/v1/analysis/backtest
@@ -34,7 +35,7 @@ router.post('/sentiment', getSentimentAnalysisValidation, getSentimentAnalysis);
  * @body scenario
  * @access Public
  */
-router.post('/backtest', runBacktestValidation, runBacktest);
+router.post('/backtest', expensiveOperationLimiter, runBacktestValidation, runBacktest);
 
 /**
  * @route POST /api/v1/analysis/retirement

@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { config } from '@/config/environment.js';
 import { logger } from '@/config/logger.js';
 import { cacheService } from './cacheService.js';
-import { AppError } from '@/middleware/errorHandler.js';
+import { AppError, ExternalServiceError } from '@/middleware/errorHandler.js';
 import {
   AiAnalysisResult,
   AnalysisModuleType,
@@ -22,12 +22,88 @@ import {
 
 class GeminiService {
   private ai: GoogleGenAI;
+  private requestCount: number = 0;
+  private lastResetTime: number = Date.now();
+  private readonly MAX_REQUESTS_PER_MINUTE = 60;
 
   constructor() {
     if (!config.geminiApiKey) {
       throw new Error('Gemini API key is required');
     }
     this.ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
+  }
+
+  // Rate limiting for Gemini API calls
+  private checkRateLimit(): void {
+    const now = Date.now();
+    const timeSinceReset = now - this.lastResetTime;
+    
+    // Reset counter every minute
+    if (timeSinceReset >= 60000) {
+      this.requestCount = 0;
+      this.lastResetTime = now;
+    }
+    
+    if (this.requestCount >= this.MAX_REQUESTS_PER_MINUTE) {
+      throw new ExternalServiceError('Gemini API rate limit exceeded. Please try again later.');
+    }
+    
+    this.requestCount++;
+  }
+
+  // Enhanced error handling for Gemini API calls
+  private async makeGeminiRequest(requestFn: () => Promise<any>, context: string): Promise<any> {
+    this.checkRateLimit();
+    
+    const maxRetries = 3;
+    let lastError: Error;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const startTime = Date.now();
+        const result = await requestFn();
+        const duration = Date.now() - startTime;
+        
+        logger.info('Gemini API request successful', {
+          context,
+          attempt,
+          duration,
+          requestCount: this.requestCount
+        });
+        
+        return result;
+      } catch (error: any) {
+        lastError = error;
+        
+        logger.warn(`Gemini API request failed (attempt ${attempt}/${maxRetries})`, {
+          context,
+          attempt,
+          error: error.message,
+          status: error.status,
+          code: error.code
+        });
+        
+        // Don't retry on certain errors
+        if (error.status === 400 || error.status === 401 || error.status === 403) {
+          break;
+        }
+        
+        // Wait before retrying (exponential backoff)
+        if (attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    // All retries failed
+    logger.error('Gemini API request failed after all retries', {
+      context,
+      error: lastError.message,
+      maxRetries
+    });
+    
+    throw new ExternalServiceError(`AI service error: ${lastError.message}`);
   }
 
   // Schemas for structured responses
@@ -213,7 +289,8 @@ class GeminiService {
     formatInstruction: string,
     schema: any,
     cacheKey?: string,
-    cacheTtl?: number
+    cacheTtl?: number,
+    context: string = 'unknown'
   ): Promise<{ data: T | null; sources: any[] }> {
     try {
       // Check cache first
@@ -226,33 +303,45 @@ class GeminiService {
       }
 
       // Step 1: Search for information
-      const searchResponse = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: searchPrompt,
-        config: {
-          tools: [{ googleSearch: {} }],
-        },
-      });
+      const searchResponse = await this.makeGeminiRequest(
+        () => this.ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: searchPrompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+          },
+        }),
+        `${context}-search`
+      );
 
       const searchResultText = searchResponse.text;
       const sources = searchResponse.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
 
       if (!searchResultText) {
-        logger.warn("Gemini search step returned no text", { prompt: searchPrompt });
+        logger.warn("Gemini search step returned no text", { context, prompt: searchPrompt.substring(0, 100) });
         return { data: null, sources: [] };
       }
 
       // Step 2: Format the text into JSON
-      const formatResponse = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `${formatInstruction}\n\nInformation:\n---\n${searchResultText}`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: schema,
-        },
-      });
+      const formatResponse = await this.makeGeminiRequest(
+        () => this.ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: `${formatInstruction}\n\nInformation:\n---\n${searchResultText}`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+          },
+        }),
+        `${context}-format`
+      );
 
       const jsonText = formatResponse.text.trim();
+      
+      if (!jsonText) {
+        logger.warn("Gemini format step returned no text", { context });
+        return { data: null, sources: [] };
+      }
+      
       const data = JSON.parse(jsonText) as T;
 
       const result = { data, sources };
@@ -265,8 +354,17 @@ class GeminiService {
       return result;
 
     } catch (error) {
-      logger.error("Error in fetchAndFormat process", { error, searchPrompt });
-      throw new AppError(`Failed to fetch data from AI service: ${error.message}`, 500);
+      logger.error("Error in fetchAndFormat process", { 
+        context, 
+        error: error.message, 
+        searchPrompt: searchPrompt.substring(0, 100) 
+      });
+      
+      if (error instanceof ExternalServiceError) {
+        throw error;
+      }
+      
+      throw new ExternalServiceError(`Failed to fetch data from AI service: ${error.message}`);
     }
   }
 
@@ -327,7 +425,8 @@ class GeminiService {
       formatInstruction,
       initialDashboardSchema,
       cacheKey,
-      300 // 5 minutes cache
+      300, // 5 minutes cache
+      'initial-dashboard'
     );
 
     const emptyData: InitialDashboardData = { liveAlerts: [], marketIndices: [], news: [] };
@@ -376,7 +475,8 @@ class GeminiService {
       formatInstruction,
       this.stockDataSchema,
       cacheKey,
-      180 // 3 minutes cache
+      180, // 3 minutes cache
+      `stock-data-${ticker}`
     );
 
     return data;
@@ -444,7 +544,8 @@ class GeminiService {
         formatInstruction,
         this.analysisSchema,
         cacheKey,
-        600 // 10 minutes cache
+        600, // 10 minutes cache
+        `ai-analysis-${analysisType}-${companyData.ticker}`
       );
 
       if (data) {
@@ -453,6 +554,8 @@ class GeminiService {
       throw new Error("Formatted data was null");
     } catch (error) {
       logger.error(`Error fetching AI analysis for ${analysisType}`, { error, ticker: companyData.ticker });
+      
+      // Return a safe fallback response instead of throwing
       return {
         patternDetected: `AI analysis for ${analysisType} could not be completed.`,
         historicalContext: "There was an error connecting to the AI service. Please check your API key and network connection.",
@@ -476,7 +579,8 @@ class GeminiService {
       formatInstruction,
       this.sentimentNewsSchema,
       cacheKey,
-      300 // 5 minutes cache
+      300, // 5 minutes cache
+      `sentiment-${company.ticker}`
     );
         
     if (!data) {
@@ -521,14 +625,17 @@ class GeminiService {
         return cached;
       }
 
-      const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: this.backtestSchema,
-        }
-      });
+      const response = await this.makeGeminiRequest(
+        () => this.ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: this.backtestSchema,
+          }
+        }),
+        `backtest-${scenario.id}`
+      );
 
       const jsonText = response.text.trim();
       const result = JSON.parse(jsonText) as BacktestResult;
@@ -568,7 +675,8 @@ class GeminiService {
       formatInstruction,
       this.financialNewsSchema,
       cacheKey,
-      300 // 5 minutes cache
+      300, // 5 minutes cache
+      `financial-news-${category}`
     );
 
     if (!data || !data.news) return [];
@@ -617,7 +725,8 @@ class GeminiService {
       formatInstruction,
       watchlistPricesSchema,
       cacheKey,
-      120 // 2 minutes cache
+      120, // 2 minutes cache
+      `watchlist-prices`
     );
     
     return data?.prices || [];
@@ -659,7 +768,8 @@ Provide the name, ticker, current value, change, and percent change for each as 
       formatInstruction,
       marketIndexSchema,
       cacheKey,
-      300 // 5 minutes cache
+      300, // 5 minutes cache
+      `market-indices-${region}`
     );
 
     return data?.indices || [];
@@ -705,7 +815,8 @@ Provide the name, ticker, current value, change, and percent change for each as 
       formatInstruction,
       financialVideosSchema,
       cacheKey,
-      1800 // 30 minutes cache
+      1800, // 30 minutes cache
+      'financial-videos'
     );
     
     if (!data || !data.videos) return [];
@@ -768,7 +879,8 @@ Provide the name, ticker, current value, change, and percent change for each as 
       formatInstruction,
       liveEventsSchema,
       cacheKey,
-      180 // 3 minutes cache
+      180, // 3 minutes cache
+      'live-market-events'
     );
 
     if (!data || !data.eventCategories) return [];
@@ -821,14 +933,17 @@ Provide the name, ticker, current value, change, and percent change for each as 
     `;
 
     try {
-      const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: retirementAnalysisSchema,
-        },
-      });
+      const response = await this.makeGeminiRequest(
+        () => this.ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: retirementAnalysisSchema,
+          },
+        }),
+        'retirement-analysis'
+      );
       
       const result = JSON.parse(response.text.trim());
       const analysis = result.analysis || "Could not generate analysis.";
@@ -841,6 +956,33 @@ Provide the name, ticker, current value, change, and percent change for each as 
       logger.error("Error fetching retirement analysis", { error });
       return "AI analysis is currently unavailable.";
     }
+  }
+
+  // Health check method
+  async healthCheck(): Promise<boolean> {
+    try {
+      await this.makeGeminiRequest(
+        () => this.ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: "Say 'OK' if you can respond.",
+        }),
+        'health-check'
+      );
+      return true;
+    } catch (error) {
+      logger.error('Gemini service health check failed', { error: error.message });
+      return false;
+    }
+  }
+
+  // Get service statistics
+  getStats() {
+    return {
+      requestCount: this.requestCount,
+      lastResetTime: this.lastResetTime,
+      maxRequestsPerMinute: this.MAX_REQUESTS_PER_MINUTE,
+      remainingRequests: Math.max(0, this.MAX_REQUESTS_PER_MINUTE - this.requestCount)
+    };
   }
 }
 

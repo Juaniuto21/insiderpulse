@@ -12,15 +12,33 @@ interface Config {
   cacheDefaultTtl: number;
   logLevel: string;
   apiVersion: string;
+  jwtSecret: string;
+  bcryptRounds: number;
+  sessionSecret: string;
+  hstsMaxAge: number;
+  cspReportUri?: string;
+  sentryDsn?: string;
+  databaseUrl?: string;
+  redisUrl?: string;
 }
 
 const requiredEnvVars = ['GEMINI_API_KEY'];
+
+// Add conditional required vars for production
+if (process.env.NODE_ENV === 'production') {
+  requiredEnvVars.push('JWT_SECRET', 'SESSION_SECRET');
+}
 
 // Validate required environment variables
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
     throw new Error(`Missing required environment variable: ${envVar}`);
   }
+}
+
+// Validate JWT secret length in production
+if (process.env.NODE_ENV === 'production' && process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must be at least 32 characters long in production');
 }
 
 export const config: Config = {
@@ -32,7 +50,15 @@ export const config: Config = {
   rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '100', 10), // 100 requests per window
   cacheDefaultTtl: parseInt(process.env.CACHE_DEFAULT_TTL || '300', 10), // 5 minutes
   logLevel: process.env.LOG_LEVEL || 'info',
-  apiVersion: 'v1'
+  apiVersion: 'v1',
+  jwtSecret: process.env.JWT_SECRET || 'dev-secret-key-change-in-production',
+  bcryptRounds: parseInt(process.env.BCRYPT_ROUNDS || '12', 10),
+  sessionSecret: process.env.SESSION_SECRET || 'dev-session-secret-change-in-production',
+  hstsMaxAge: parseInt(process.env.HSTS_MAX_AGE || '31536000', 10),
+  cspReportUri: process.env.CSP_REPORT_URI,
+  sentryDsn: process.env.SENTRY_DSN,
+  databaseUrl: process.env.DATABASE_URL,
+  redisUrl: process.env.REDIS_URL,
 };
 
 export const isProduction = config.nodeEnv === 'production';

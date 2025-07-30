@@ -3,6 +3,7 @@ import newsRoutes from './newsRoutes.js';
 import stockRoutes from './stockRoutes.js';
 import analysisRoutes from './analysisRoutes.js';
 import contentRoutes from './contentRoutes.js';
+import healthRoutes from './healthRoutes.js';
 import { config } from '@/config/environment.js';
 
 const router = Router();
@@ -10,16 +11,8 @@ const router = Router();
 // API version prefix
 const apiPrefix = `/api/${config.apiVersion}`;
 
-// Health check endpoint
-router.get('/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'InsiderPulse API is running',
-    version: config.apiVersion,
-    timestamp: new Date().toISOString(),
-    environment: config.nodeEnv
-  });
-});
+// Health check routes
+router.use('/health', healthRoutes);
 
 // Mount route modules
 router.use(`${apiPrefix}/news`, newsRoutes);
