@@ -20,13 +20,16 @@ interface Config {
   sentryDsn?: string;
   databaseUrl?: string;
   redisUrl?: string;
+  encryptionKey: string;
+  maxRequestSize: string;
+  trustedProxies: string[];
 }
 
 const requiredEnvVars = ['GEMINI_API_KEY'];
 
 // Add conditional required vars for production
 if (process.env.NODE_ENV === 'production') {
-  requiredEnvVars.push('JWT_SECRET', 'SESSION_SECRET');
+  requiredEnvVars.push('JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'ENCRYPTION_KEY');
 }
 
 // Validate required environment variables
@@ -41,6 +44,10 @@ if (process.env.NODE_ENV === 'production' && process.env.JWT_SECRET && process.e
   throw new Error('JWT_SECRET must be at least 32 characters long in production');
 }
 
+// Validate encryption key length
+if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.length < 32) {
+  throw new Error('ENCRYPTION_KEY must be at least 32 characters long');
+}
 export const config: Config = {
   port: parseInt(process.env.PORT || '3001', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -59,6 +66,9 @@ export const config: Config = {
   sentryDsn: process.env.SENTRY_DSN,
   databaseUrl: process.env.DATABASE_URL,
   redisUrl: process.env.REDIS_URL,
+  encryptionKey: process.env.ENCRYPTION_KEY || 'dev-encryption-key-change-in-production-32chars',
+  maxRequestSize: process.env.MAX_REQUEST_SIZE || '10mb',
+  trustedProxies: process.env.TRUSTED_PROXIES?.split(',') || ['127.0.0.1', '::1']
 };
 
 export const isProduction = config.nodeEnv === 'production';

@@ -2,8 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
+import session from 'express-session';
 import { config, isProduction } from '@/config/environment.js';
 import { logger } from '@/config/logger.js';
+import { databaseService } from '@/config/database.js';
 import { 
   rateLimiter, 
   speedLimiter, 
@@ -11,8 +13,10 @@ import {
   sanitizeInput, 
   validateRequest,
   validateApiKey,
-  addRequestId
+  addRequestId,
+  generateCSRFToken
 } from '@/middleware/security.js';
+import { requestMonitoring, performanceMonitoring } from '@/middleware/monitoring.js';
 import { errorHandler, notFoundHandler } from '@/middleware/errorHandler.js';
 import routes from '@/routes/index.js';
 
@@ -23,6 +27,23 @@ app.set('trust proxy', 1);
 
 // Request ID middleware (must be first)
 app.use(addRequestId);
+
+// Session configuration
+app.use(session({
+  secret: config.sessionSecret,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: isProduction,
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: 'strict'
+  },
+  name: 'insiderpulse.sid'
+}));
+
+// CSRF token generation
+app.use(generateCSRFToken);
 
 // Security middleware
 app.use(helmetConfig);
@@ -73,6 +94,10 @@ app.use(sanitizeInput);
 app.use(validateRequest);
 app.use(validateApiKey);
 
+// Monitoring middleware
+app.use(requestMonitoring);
+app.use(performanceMonitoring);
+
 // API routes
 app.use('/', routes);
 
@@ -90,6 +115,13 @@ const gracefulShutdown = (signal: string) => {
       process.exit(1);
     }
     
+    // Close database connection
+    try {
+      await databaseService.disconnect();
+    } catch (error) {
+      logger.error('Error closing database connection', { error });
+    }
+    
     logger.info('Server closed successfully');
     process.exit(0);
   });
@@ -102,7 +134,15 @@ const gracefulShutdown = (signal: string) => {
 };
 
 // Start server
-const server = app.listen(config.port, () => {
+const server = app.listen(config.port, async () => {
+  // Initialize database connection
+  try {
+    await databaseService.connect();
+  } catch (error) {
+    logger.error('Failed to connect to database', { error });
+    process.exit(1);
+  }
+  
   logger.info(`InsiderPulse API server running on port ${config.port}`, {
     environment: config.nodeEnv,
     version: config.apiVersion,
