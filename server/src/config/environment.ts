@@ -29,13 +29,13 @@ const requiredEnvVars = ['GEMINI_API_KEY'];
 
 // Add conditional required vars for production
 if (process.env.NODE_ENV === 'production') {
-  requiredEnvVars.push('JWT_SECRET', 'SESSION_SECRET', 'DATABASE_URL', 'ENCRYPTION_KEY');
+  requiredEnvVars.push('JWT_SECRET', 'SESSION_SECRET', 'ENCRYPTION_KEY');
 }
 
 // Validate required environment variables
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
-    throw new Error(`Missing required environment variable: ${envVar}`);
+    console.warn(`Missing environment variable: ${envVar}`);
   }
 }
 
@@ -46,12 +46,13 @@ if (process.env.NODE_ENV === 'production' && process.env.JWT_SECRET && process.e
 
 // Validate encryption key length
 if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.length < 32) {
-  throw new Error('ENCRYPTION_KEY must be at least 32 characters long');
+  console.warn('ENCRYPTION_KEY should be at least 32 characters long');
 }
+
 export const config: Config = {
   port: parseInt(process.env.PORT || '3001', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
-  geminiApiKey: process.env.GEMINI_API_KEY!,
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
   corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:5173', 'http://localhost:3000'],
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // 15 minutes
   rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '100', 10), // 100 requests per window

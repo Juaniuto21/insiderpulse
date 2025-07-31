@@ -5,7 +5,6 @@ import morgan from 'morgan';
 import session from 'express-session';
 import { config, isProduction } from '@/config/environment.js';
 import { logger } from '@/config/logger.js';
-import { databaseService } from '@/config/database.js';
 import { 
   rateLimiter, 
   speedLimiter, 
@@ -61,7 +60,7 @@ app.use(cors({
     }
     
     // In development, allow localhost with any port
-    if (!isProduction && origin.match(/^https?:\/\/localhost:\d+$/)) {
+    if (!isProduction && origin && origin.match(/^https?:\/\/localhost:\d+$/)) {
       return callback(null, true);
     }
     
@@ -115,13 +114,6 @@ const gracefulShutdown = (signal: string) => {
       process.exit(1);
     }
     
-    // Close database connection
-    try {
-      await databaseService.disconnect();
-    } catch (error) {
-      logger.error('Error closing database connection', { error });
-    }
-    
     logger.info('Server closed successfully');
     process.exit(0);
   });
@@ -134,15 +126,7 @@ const gracefulShutdown = (signal: string) => {
 };
 
 // Start server
-const server = app.listen(config.port, async () => {
-  // Initialize database connection
-  try {
-    await databaseService.connect();
-  } catch (error) {
-    logger.error('Failed to connect to database', { error });
-    process.exit(1);
-  }
-  
+const server = app.listen(config.port, () => {
   logger.info(`InsiderPulse API server running on port ${config.port}`, {
     environment: config.nodeEnv,
     version: config.apiVersion,
